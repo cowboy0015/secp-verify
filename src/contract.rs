@@ -4,13 +4,12 @@ use andromeda_std::{
     common::{actions::call_action, context::ExecuteContext},
     error::ContractError,
 };
-use bech32::ToBase32;
-use bech32::Variant;
+use bech32::{ToBase32, Variant};
 #[cfg(not(feature = "library"))]
 use cosmwasm_std::entry_point;
 use cosmwasm_std::{ensure, Binary, Deps, DepsMut, Env, MessageInfo, Response};
-use k256::PublicKey;
 use ripemd::Ripemd160;
+use secp256k1::PublicKey;
 use sha2::{digest::Update, Digest, Sha256};
 
 use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg};
@@ -95,16 +94,14 @@ pub fn verify_signature(
     let address = derive_address(&derive_prefix(ctx.env), public_key).unwrap();
     ensure!(address == signer_addr, ContractError::InvalidAddress {  });
 
-    let message_digest = Sha256::new().chain(&msg);
-    let message_hash = message_digest.clone().finalize();
-    let message_hash: [u8; 32] = message_hash.into();
+    let message_hash: [u8; 32] = Sha256::new().chain(&msg).finalize().into();
 
     match ctx
         .deps
         .api
         .secp256k1_verify(&message_hash, signature, public_key)
     {
-        Ok(res) => Ok(res),
+        Ok(valid) => Ok(valid),
         Err(_) => Ok(false),
     }
 }
@@ -119,13 +116,7 @@ pub fn derive_prefix(env: Env) -> String {
 }
 
 pub fn derive_address(prefix: &str, public_key_bytes: &[u8]) -> Result<String, ContractError> {
-    // Handle uncompressed public key (65 bytes with 0x04 prefix)
-    let pub_key_compressed = if public_key_bytes.len() == 65 && public_key_bytes[0] == 0x04 {
-        let pub_key = PublicKey::from_sec1_bytes(public_key_bytes).unwrap();
-        &pub_key.to_sec1_bytes()
-    } else {
-        public_key_bytes
-    };
+    let pub_key_compressed = &PublicKey::from_slice(public_key_bytes).unwrap().serialize();
 
     // Hash with SHA-256
     let sha256_hash = Sha256::digest(pub_key_compressed);
@@ -134,9 +125,7 @@ pub fn derive_address(prefix: &str, public_key_bytes: &[u8]) -> Result<String, C
     let ripemd160_hash = Ripemd160::digest(sha256_hash);
 
     // Encode with bech32
-    let encoded = bech32::encode(prefix, ripemd160_hash.to_base32(), Variant::Bech32).unwrap();
-
-    Ok(encoded)
+    bech32::encode(prefix, ripemd160_hash.to_base32(), Variant::Bech32).map_err(|_| ContractError::InvalidAddress {  })
 }
 
 #[cfg(test)]
@@ -144,6 +133,7 @@ mod tests {
     use super::{derive_address, verify_signature};
     use andromeda_std::common::context::ExecuteContext;
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
+    use k256::{ecdsa::SigningKey, elliptic_curve::rand_core::OsRng};
     use sha2::{digest::Update, Digest, Sha256};
 
     #[test]
@@ -153,12 +143,7 @@ mod tests {
         // Signing
         let message_digest = Sha256::new().chain(msg.clone());
 
-        let secret_key_bytes: [u8; 32] = [
-            223, 51, 204, 10, 98, 158, 64, 30, 96, 55, 122, 180, 0, 56, 59, 58, 78, 66, 170, 41,
-            163, 197, 79, 210, 205, 40, 50, 173, 66, 167, 199, 185,
-        ];
-        let secret_key = k256::ecdsa::SigningKey::from_slice(&secret_key_bytes).unwrap();
-        // let secret_key = SigningKey::random(&mut OsRng);
+        let secret_key = SigningKey::random(&mut OsRng);
         let signature = secret_key
             .sign_digest_recoverable(message_digest)
             .unwrap()
