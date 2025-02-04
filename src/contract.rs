@@ -76,8 +76,9 @@ pub fn handle_execute(mut ctx: ExecuteContext, msg: ExecuteMsg) -> Result<Respon
             msg,
             signature,
             public_key,
-            signer_addr 
-        } => verify_signature(ctx, msg, &signature, &public_key, signer_addr),
+            signer_addr ,
+            network_prefix,
+        } => verify_signature(ctx, msg, &signature, &public_key, signer_addr, network_prefix),
         _ => ADOContract::default().execute(ctx, msg)
     }?;
 
@@ -98,8 +99,9 @@ pub fn verify_signature(
     signature: &[u8],
     public_key: &[u8],
     signer_addr: String,
+    network_prefix: String,
 ) -> Result<Response, ContractError> {
-    let address = derive_address(&derive_prefix(ctx.env), public_key).unwrap();
+    let address = derive_address(&network_prefix, public_key).unwrap();
     ensure!(address == signer_addr, ContractError::InvalidAddress {  });
 
     let message_hash: [u8; 32] = Sha256::new().chain(&msg).finalize().into();
@@ -120,15 +122,6 @@ pub fn verify_signature(
             .add_attribute("msg", msg)
             .add_attribute("is_valid_signature", valid.to_string())
     )
-}
-
-pub fn derive_prefix(env: Env) -> String {
-    let contract_address = env.contract.address.into_string();
-    if contract_address.len() > 39 {
-        contract_address.chars().take(contract_address.len() - 39).collect()
-    } else {
-        "cosmos".to_string()
-    }
 }
 
 pub fn derive_address(prefix: &str, public_key_bytes: &[u8]) -> Result<String, ContractError> {
@@ -173,11 +166,10 @@ mod tests {
         let mut deps = mock_dependencies();
         let env = mock_env();
         let info = mock_info("owner", &[]);
-        let address = derive_address("cosmos", public_key_bytes).unwrap();
+        let address = derive_address("neutron", public_key_bytes).unwrap();
 
         let ctx = ExecuteContext::new(deps.as_mut(), info, env);
-        
-        let res = verify_signature(ctx, msg.clone(), &signature.to_bytes(), public_key_bytes, address.clone()).unwrap();
+        let res = verify_signature(ctx, msg.clone(), &signature.to_bytes(), public_key_bytes, address.clone(), "neutron".to_string()).unwrap();
         let expected_res = Response::new()
             .add_attribute("action", "verify_signature")
             .add_attribute("sender", "owner")
