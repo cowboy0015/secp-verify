@@ -77,8 +77,8 @@ pub fn handle_execute(mut ctx: ExecuteContext, msg: ExecuteMsg) -> Result<Respon
             signature,
             public_key,
             signer_addr ,
-            network_prefix,
-        } => verify_signature(ctx, msg, &signature, &public_key, signer_addr, network_prefix),
+            address_prefix,
+        } => verify_signature(ctx, msg, &signature, &public_key, signer_addr, address_prefix),
         _ => ADOContract::default().execute(ctx, msg)
     }?;
 
@@ -99,9 +99,9 @@ pub fn verify_signature(
     signature: &[u8],
     public_key: &[u8],
     signer_addr: String,
-    network_prefix: String,
+    address_prefix: String,
 ) -> Result<Response, ContractError> {
-    let address = derive_address(&network_prefix, public_key).unwrap();
+    let address = derive_address(&address_prefix, public_key).unwrap();
     ensure!(address == signer_addr, ContractError::InvalidAddress {  });
 
     let message_hash: [u8; 32] = Sha256::new().chain(&msg).finalize().into();

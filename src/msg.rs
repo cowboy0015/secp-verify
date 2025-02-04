@@ -13,7 +13,7 @@ pub enum ExecuteMsg {
         signature: Vec<u8>,
         public_key: Vec<u8>,
         signer_addr: String,
-        network_prefix: String
+        address_prefix: String
     }
 }
 
