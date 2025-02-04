@@ -7,7 +7,15 @@ pub struct InstantiateMsg {}
 
 #[andr_exec]
 #[cw_serde]
-pub enum ExecuteMsg {}
+pub enum ExecuteMsg {
+    VerifySignature {
+        msg: String,
+        signature: Vec<u8>,
+        public_key: Vec<u8>,
+        signer_addr: String,
+
+    }
+}
 
 #[andr_query]
 #[cw_serde]

@@ -71,7 +71,15 @@ pub fn handle_execute(mut ctx: ExecuteContext, msg: ExecuteMsg) -> Result<Respon
         msg.as_ref(),
     )?;
 
-    let res = ADOContract::default().execute(ctx, msg)?;
+    let res = match msg {
+        ExecuteMsg::VerifySignature {
+            msg,
+            signature,
+            public_key,
+            signer_addr 
+        } => verify_signature(ctx, msg, &signature, &public_key, signer_addr),
+        _ => ADOContract::default().execute(ctx, msg)
+    }?;
 
     Ok(res
         .add_submessages(action_response.messages)
@@ -90,20 +98,28 @@ pub fn verify_signature(
     signature: &[u8],
     public_key: &[u8],
     signer_addr: String,
-) -> Result<bool, ContractError> {
+) -> Result<Response, ContractError> {
     let address = derive_address(&derive_prefix(ctx.env), public_key).unwrap();
     ensure!(address == signer_addr, ContractError::InvalidAddress {  });
 
     let message_hash: [u8; 32] = Sha256::new().chain(&msg).finalize().into();
 
-    match ctx
+    let valid = match ctx
         .deps
         .api
         .secp256k1_verify(&message_hash, signature, public_key)
     {
-        Ok(valid) => Ok(valid),
-        Err(_) => Ok(false),
-    }
+        Ok(valid) => valid,
+        Err(_) => false,
+    };
+    Ok(
+        Response::new()
+            .add_attribute("action", "verify_signature")
+            .add_attribute("sender", ctx.info.sender)
+            .add_attribute("signer_address", signer_addr)
+            .add_attribute("msg", msg)
+            .add_attribute("is_valid_signature", valid.to_string())
+    )
 }
 
 pub fn derive_prefix(env: Env) -> String {
@@ -132,7 +148,7 @@ pub fn derive_address(prefix: &str, public_key_bytes: &[u8]) -> Result<String, C
 mod tests {
     use super::{derive_address, verify_signature};
     use andromeda_std::common::context::ExecuteContext;
-    use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
+    use cosmwasm_std::{testing::{mock_dependencies, mock_env, mock_info}, Response};
     use k256::{ecdsa::SigningKey, elliptic_curve::rand_core::OsRng};
     use sha2::{digest::Update, Digest, Sha256};
 
@@ -160,6 +176,17 @@ mod tests {
         let address = derive_address("cosmos", public_key_bytes).unwrap();
 
         let ctx = ExecuteContext::new(deps.as_mut(), info, env);
-        assert!(verify_signature(ctx, msg, &signature.to_bytes(), public_key_bytes, address).unwrap());
+        
+        let res = verify_signature(ctx, msg.clone(), &signature.to_bytes(), public_key_bytes, address.clone()).unwrap();
+        let expected_res = Response::new()
+            .add_attribute("action", "verify_signature")
+            .add_attribute("sender", "owner")
+            .add_attribute("signer_address", address)
+            .add_attribute("msg", msg)
+            .add_attribute("is_valid_signature", true.to_string());
+
+        assert_eq!(
+            res, expected_res
+        )
     }
 }
